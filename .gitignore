@@ -1,0 +1,16 @@
+*.[o,a]
+*.bz2
+*.xz
+**/.deps/
+**/Makefile.in
+**/*.out
+aclocal.m4
+autom4te.cache/
+build-aux/
+config.log
+config.status
+configure
+configure~
+neo-console
+bdfparser
+font.cc
