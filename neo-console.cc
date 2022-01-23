@@ -76,7 +76,7 @@ getIp()
     }
 
     freeifaddrs( ifaHead );
-    return move( ipAddresses );
+    return ipAddresses.empty()? "no IP" : move( ipAddresses );
 }
 
 /**************************************************************************************************************/
