@@ -1,4 +1,5 @@
 CXXFLAGS += -std=c++17
+LDLIBS = -lgpiod
 
 all:		neo-console
 
