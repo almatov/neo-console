@@ -21,6 +21,7 @@
 #include <stdexcept>
 #include <string>
 #include <fcntl.h>
+#include <poll.h>
 #include <unistd.h>
 #include <linux/i2c.h>
 #include <linux/i2c-dev.h>
@@ -96,37 +97,34 @@ NanoHat::NanoHat()
         throw runtime_error( "failed to request GPIO lines" );
     }
 
-    int     fd = gpiod_line_request_get_fd( gpioRequest_ );
-    int     flags = fcntl( fd, F_GETFL, 0 );
-
-    fcntl( fd, F_SETFL, flags | O_NONBLOCK );
+    gpioFd_ = gpiod_line_request_get_fd( gpioRequest_ );
     gpiod_request_config_free( reqConfig );
     gpiod_line_config_free( lineConfig );
     gpiod_line_settings_free( settings );
     gpiod_chip_close( chip );
 
-    i2cfd_ = open( I2C_DEVICE_, O_RDWR | O_NONBLOCK );
-
-    int     initCommands[] = 
+    static int  initCommands[] =
     {
         0xae, 0xd5, 0x80, 0xa8, 0x3f, 0xd3, 0x00, 0x40, 0x8d, 0x14, 0x20, 0x00, 0xa1, 0xc8, 0xda, 0x12,
         0x81, 0xcf, 0xd9, 0xf1, 0xdb, 0x40, 0xa4, 0xa6, 0x2e, 0xaf, 0x21, 0x00, 0x7f, 0x22, 0x00, 0x07
     };
 
+    oledFd_ = open( I2C_DEVICE_, O_RDWR | O_NONBLOCK );
+
     for ( int cmd : initCommands )
     {
-        oledCommand_( i2cfd_, cmd );
+        oledCommand_( oledFd_, cmd );
     }
 
     oledBuffer_ = new uint8_t[ OLED_BUFFER_SIZE_ + sizeof(void*) ] + sizeof( void* );
     memset( oledBuffer_, 0, OLED_BUFFER_SIZE_ );
-    oledFlush_( i2cfd_, oledBuffer_ );
+    oledFlush_( oledFd_, oledBuffer_ );
 }
 
 /**************************************************************************************************************/
 NanoHat::~NanoHat()
 {
-    close( i2cfd_ );
+    close( oledFd_ );
     delete[] ( oledBuffer_ - sizeof(void*) );
     gpiod_line_request_release( gpioRequest_ );
     gpiod_edge_event_buffer_free( gpioBuffer_ );
@@ -134,33 +132,38 @@ NanoHat::~NanoHat()
 
 /**************************************************************************************************************/
 NanoHat::Key
-NanoHat::getKey()
+NanoHat::getKey( int timeout )
 {
     if ( keyQueue_.empty() )
     {
-        int     nEvents = gpiod_line_request_read_edge_events( gpioRequest_, gpioBuffer_, GPIO_BUFFER_SIZE_ );
+        struct pollfd   pollFd = { .fd = gpioFd_, .events = POLLIN };
 
-        if ( nEvents <= 0 )
+        if ( poll(&pollFd, 1, timeout) > 0 )
         {
-            return Key::NO_KEY;
+            int     nEvents = gpiod_line_request_read_edge_events( gpioRequest_, gpioBuffer_, GPIO_BUFFER_SIZE_ );
+
+            for ( int i = 0; i < nEvents; ++i )
+            {
+                struct gpiod_edge_event*    event = gpiod_edge_event_buffer_get_event( gpioBuffer_, i );
+                unsigned                    offset = gpiod_edge_event_get_line_offset( event );
+
+                switch ( offset )
+                {
+                    case F1_PIN_:
+                        keyQueue_.push( Key::KEY_F1 );
+                        break;
+                    case F2_PIN_:
+                        keyQueue_.push( Key::KEY_F2 );
+                        break;
+                    case F3_PIN_:
+                        keyQueue_.push( Key::KEY_F3 );
+                }
+            }
         }
 
-        for ( int i = 0; i < nEvents; ++i )
+        if ( keyQueue_.empty() )
         {
-            struct gpiod_edge_event*    event = gpiod_edge_event_buffer_get_event( gpioBuffer_, i );
-            unsigned                    offset = gpiod_edge_event_get_line_offset( event );
-
-            switch ( offset )
-            {
-                case F1_PIN_:
-                    keyQueue_.push( Key::KEY_F1 );
-                    break;
-                case F2_PIN_:
-                    keyQueue_.push( Key::KEY_F2 );
-                    break;
-                case F3_PIN_:
-                    keyQueue_.push( Key::KEY_F3 );
-            }
+            return Key::NO_KEY;
         }
     }
 
@@ -211,5 +214,5 @@ NanoHat::print( const string& message )
         }
     }
 
-    oledFlush_( i2cfd_, oledBuffer_ );
+    oledFlush_( oledFd_, oledBuffer_ );
 }

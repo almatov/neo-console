@@ -33,7 +33,7 @@
 using std::atomic_flag;
 using std::string;
 
-constexpr const int     IDLE_DURATION = 200000;    // microseconds
+constexpr const int     WAIT_TIMEOUT = 1000;    // milliseconds
 
 enum class State
 {
@@ -110,7 +110,7 @@ main()
     {
         stopFlag.clear();
 
-        switch ( hat.getKey() )
+        switch ( hat.getKey(WAIT_TIMEOUT) )
         {
             case NanoHat::Key::KEY_F1:
                 state = State::IP;
@@ -134,8 +134,6 @@ main()
             default:
                 hat.print( "" );
         };
-
-        usleep( IDLE_DURATION );
     }
 
     hat.print( "" );

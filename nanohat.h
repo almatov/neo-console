@@ -37,7 +37,7 @@ public:
                                         NanoHat();
                                         ~NanoHat();
 
-    Key                                 getKey();
+    Key                                 getKey( int timeout );
     void                                print( const std::string& message );
 
 protected:
@@ -45,5 +45,6 @@ protected:
     struct gpiod_line_request*          gpioRequest_;
     struct gpiod_edge_event_buffer*     gpioBuffer_;
     uint8_t*                            oledBuffer_;
-    int                                 i2cfd_;
+    int                                 gpioFd_;
+    int                                 oledFd_;
 };
