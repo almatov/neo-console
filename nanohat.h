@@ -2,7 +2,7 @@
 ****************************************************************************************************************
 ****************************************************************************************************************
 
-    Copyright (C) 2022 Askar Almatov
+    Copyright (C) 2022, 2023 Askar Almatov
 
     This program is free software: you can redistribute it and/or modify it under the terms of the GNU General
     Public License as published by the Free Software Foundation, either version 3 of the License, or (at your
@@ -17,28 +17,33 @@
 */
 
 #include <cstdint>
+#include <queue>
 #include <string>
+#include <gpiod.h>
 #include <sys/epoll.h>
 
 /**************************************************************************************************************/
 class NanoHat
 {
 public:
+    enum class Key
+    {
+                                        NO_KEY,
+                                        KEY_F1,
+                                        KEY_F2,
+                                        KEY_F3
+    };
+
                                         NanoHat();
                                         ~NanoHat();
 
-    void                                waitKey( int timeout );
-    bool                                isKey1() const;
-    bool                                isKey2() const;
-    bool                                isKey3() const;
+    Key                                 getKey();
     void                                print( const std::string& message );
 
 protected:
+    std::queue<Key>                     keyQueue_;
+    struct gpiod_line_request*          gpioRequest_;
+    struct gpiod_edge_event_buffer*     gpioBuffer_;
+    uint8_t*                            oledBuffer_;
     int                                 i2cfd_;
-    int                                 epfd_;
-    int                                 fd1_;
-    int                                 fd2_;
-    int                                 fd3_;
-    struct epoll_event                  revent_;
-    uint8_t*                            buffer_;
 };

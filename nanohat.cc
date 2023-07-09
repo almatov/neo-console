@@ -2,7 +2,7 @@
 ****************************************************************************************************************
 ****************************************************************************************************************
 
-    Copyright (C) 2022 Askar Almatov
+    Copyright (C) 2022, 2023 Askar Almatov
 
     This program is free software: you can redistribute it and/or modify it under the terms of the GNU General
     Public License as published by the Free Software Foundation, either version 3 of the License, or (at your
@@ -17,31 +17,31 @@
 */
 
 #include <cstring>
-#include <fstream>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <fcntl.h>
 #include <unistd.h>
+#include <linux/i2c.h>
 #include <linux/i2c-dev.h>
 #include <sys/ioctl.h>
 
 #include "nanohat.h"
 
 using std::endl;
-using std::exception;
-using std::ofstream;
 using std::runtime_error;
 using std::string;
-using std::to_string;
 
-constexpr const int     F1_PIN_         = 0;
-constexpr const int     F2_PIN_         = 2;
-constexpr const int     F3_PIN_         = 3;
-constexpr const int     OLED_WIDTH_     = 128;
-constexpr const int     OLED_HEIGHT_    = 64;
-constexpr const int     I2C_ADDRESS_    = 0x3c;
-constexpr const char*   I2C_DEVICE_     = "/dev/i2c-0";
-constexpr const int     BUFFER_SIZE_    = ( OLED_WIDTH_ * OLED_HEIGHT_ ) >> 3;
+constexpr const int     F1_PIN_             = 0;
+constexpr const int     F2_PIN_             = 2;
+constexpr const int     F3_PIN_             = 3;
+constexpr const char*   GPIO_DEVICE_        = "/dev/gpiochip1";
+constexpr const int     GPIO_BUFFER_SIZE_   = 32;
+constexpr const char*   I2C_DEVICE_         = "/dev/i2c-0";
+constexpr const int     I2C_ADDRESS_        = 0x3c;
+constexpr const int     OLED_WIDTH_         = 128;
+constexpr const int     OLED_HEIGHT_        = 64;
+constexpr const int     OLED_BUFFER_SIZE_   = ( OLED_WIDTH_ * OLED_HEIGHT_ ) >> 3;
 
 extern const uint8_t    FONT[][ 16 ];
 
@@ -49,7 +49,7 @@ extern const uint8_t    FONT[][ 16 ];
 static void
 oledCommand_( int fd, int command )
 {
-    char                        buf[] = { 0x80, static_cast<char>(command) };
+    uint8_t                     buf[] = { 0x80, static_cast<char>(command) };
     struct i2c_msg              message = { I2C_ADDRESS_, 0, sizeof(buf), buf };
     struct i2c_rdwr_ioctl_data  data = { &message, 1 };
 
@@ -60,8 +60,8 @@ oledCommand_( int fd, int command )
 static void
 oledFlush_( int fd, uint8_t* buffer )
 {
-    char*                       buf = reinterpret_cast<char*>( buffer - 1 );
-    struct i2c_msg              message = { I2C_ADDRESS_, 0, BUFFER_SIZE_ + 1, buf };
+    uint8_t*                    buf = buffer - 1;
+    struct i2c_msg              message = { I2C_ADDRESS_, 0, OLED_BUFFER_SIZE_ + 1, buf };
     struct i2c_rdwr_ioctl_data  data = { &message, 1 };
 
     *buf = 0x40;
@@ -71,46 +71,40 @@ oledFlush_( int fd, uint8_t* buffer )
 /**************************************************************************************************************/
 NanoHat::NanoHat()
 {
-    ofstream( "/sys/class/gpio/unexport" ) << F1_PIN_ << endl << F2_PIN_ << endl << F3_PIN_ << endl;
-    ofstream( "/sys/class/gpio/export" ) << F1_PIN_ << endl << F2_PIN_ << endl << F3_PIN_ << endl;
+    struct gpiod_chip*  chip = gpiod_chip_open( GPIO_DEVICE_ );
 
-    if ( access(("/sys/class/gpio/gpio"+to_string(F3_PIN_)+"/value").c_str(), F_OK) < 0 )
+    if ( chip == nullptr )
     {
-        throw runtime_error( "cannot export GPIO" );
+        throw runtime_error( "cannot open GPIO device" );
     }
 
-    const string    dir1( "/sys/class/gpio/gpio" + to_string(F1_PIN_) );
-    const string    dir2( "/sys/class/gpio/gpio" + to_string(F2_PIN_) );
-    const string    dir3( "/sys/class/gpio/gpio" + to_string(F3_PIN_) );
+    extern char*                    program_invocation_short_name;
+    unsigned                        offsets[] = { F1_PIN_, F2_PIN_, F3_PIN_ };
+    struct gpiod_line_settings*     settings = gpiod_line_settings_new();
+    struct gpiod_request_config*    reqConfig = gpiod_request_config_new();
+    struct gpiod_line_config*       lineConfig = gpiod_line_config_new();
 
-    ofstream( dir1 + "/direction" ) << "in" << endl;
-    ofstream( dir2 + "/direction" ) << "in" << endl;
-    ofstream( dir3 + "/direction" ) << "in" << endl;
-    ofstream( dir1 + "/edge" ) << "rising" << endl;
-    ofstream( dir2 + "/edge" ) << "rising" << endl;
-    ofstream( dir3 + "/edge" ) << "rising" << endl;
+    gpiod_line_settings_set_direction( settings, GPIOD_LINE_DIRECTION_INPUT );
+    gpiod_line_settings_set_edge_detection( settings, GPIOD_LINE_EDGE_RISING );
+    gpiod_line_config_add_line_settings( lineConfig, offsets, sizeof(offsets)/sizeof(offsets[0]), settings );
+    gpiod_request_config_set_consumer( reqConfig, program_invocation_short_name );
+    gpioBuffer_ = gpiod_edge_event_buffer_new( GPIO_BUFFER_SIZE_ );
+    gpioRequest_ = gpiod_chip_request_lines( chip, reqConfig, lineConfig );
 
-    fd1_ = open( (dir1 + "/value").c_str(), O_RDONLY ); 
-    fd2_ = open( (dir2 + "/value").c_str(), O_RDONLY ); 
-    fd3_ = open( (dir3 + "/value").c_str(), O_RDONLY ); 
-
-    struct epoll_event  event1 = { .events = EPOLLIN | EPOLLET, .data = {.fd = fd1_} };
-    struct epoll_event  event2 = { .events = EPOLLIN | EPOLLET, .data = {.fd = fd2_} };
-    struct epoll_event  event3 = { .events = EPOLLIN | EPOLLET, .data = {.fd = fd3_} };
-
-    epfd_ = epoll_create( 1 );
-
-    if
-    (
-        epoll_ctl( epfd_, EPOLL_CTL_ADD, fd1_, &event1 ) < 0 ||
-        epoll_ctl( epfd_, EPOLL_CTL_ADD, fd2_, &event2 ) < 0 ||
-        epoll_ctl( epfd_, EPOLL_CTL_ADD, fd3_, &event3 ) < 0
-    )
+    if ( gpioRequest_ == nullptr )
     {
-        throw runtime_error( "cannot add epoll events" );
+        throw runtime_error( "failed to request GPIO lines" );
     }
 
-    epoll_wait( epfd_, &revent_, 10, 1 );
+    int     fd = gpiod_line_request_get_fd( gpioRequest_ );
+    int     flags = fcntl( fd, F_GETFL, 0 );
+
+    fcntl( fd, F_SETFL, flags | O_NONBLOCK );
+    gpiod_request_config_free( reqConfig );
+    gpiod_line_config_free( lineConfig );
+    gpiod_line_settings_free( settings );
+    gpiod_chip_close( chip );
+
     i2cfd_ = open( I2C_DEVICE_, O_RDWR | O_NONBLOCK );
 
     int     initCommands[] = 
@@ -124,51 +118,56 @@ NanoHat::NanoHat()
         oledCommand_( i2cfd_, cmd );
     }
 
-    buffer_ = new uint8_t[ BUFFER_SIZE_ + sizeof(void*) ] + sizeof( void* );
-    memset( buffer_, 0, BUFFER_SIZE_ );
-    oledFlush_( i2cfd_, buffer_ );
+    oledBuffer_ = new uint8_t[ OLED_BUFFER_SIZE_ + sizeof(void*) ] + sizeof( void* );
+    memset( oledBuffer_, 0, OLED_BUFFER_SIZE_ );
+    oledFlush_( i2cfd_, oledBuffer_ );
 }
 
 /**************************************************************************************************************/
 NanoHat::~NanoHat()
 {
     close( i2cfd_ );
-    close( fd1_ );
-    close( fd2_ );
-    close( fd3_ );
-    ofstream( "/sys/class/gpio/unexport" ) << F1_PIN_ << endl << F2_PIN_ << endl << F3_PIN_ << endl;
-    delete[] ( buffer_ - sizeof(void*) );
+    delete[] ( oledBuffer_ - sizeof(void*) );
+    gpiod_line_request_release( gpioRequest_ );
+    gpiod_edge_event_buffer_free( gpioBuffer_ );
 }
 
 /**************************************************************************************************************/
-void
-NanoHat::waitKey( int timeout )
+NanoHat::Key
+NanoHat::getKey()
 {
-    if ( epoll_wait(epfd_, &revent_, 1, timeout) <= 0 )
+    if ( keyQueue_.empty() )
     {
-        revent_.data.fd = -1;
+        int     nEvents = gpiod_line_request_read_edge_events( gpioRequest_, gpioBuffer_, GPIO_BUFFER_SIZE_ );
+
+        if ( nEvents <= 0 )
+        {
+            return Key::NO_KEY;
+        }
+
+        for ( int i = 0; i < nEvents; ++i )
+        {
+            struct gpiod_edge_event*    event = gpiod_edge_event_buffer_get_event( gpioBuffer_, i );
+            unsigned                    offset = gpiod_edge_event_get_line_offset( event );
+
+            switch ( offset )
+            {
+                case F1_PIN_:
+                    keyQueue_.push( Key::KEY_F1 );
+                    break;
+                case F2_PIN_:
+                    keyQueue_.push( Key::KEY_F2 );
+                    break;
+                case F3_PIN_:
+                    keyQueue_.push( Key::KEY_F3 );
+            }
+        }
     }
-}
 
-/**************************************************************************************************************/
-bool
-NanoHat::isKey1() const
-{
-    return revent_.data.fd == fd1_;
-}
+    Key     key = keyQueue_.front();
 
-/**************************************************************************************************************/
-bool
-NanoHat::isKey2() const
-{
-    return revent_.data.fd == fd2_;
-}
-
-/**************************************************************************************************************/
-bool
-NanoHat::isKey3() const
-{
-    return revent_.data.fd == fd3_;
+    keyQueue_.pop();
+    return key;
 }
 
 /**************************************************************************************************************/
@@ -178,7 +177,7 @@ NanoHat::print( const string& message )
     int     x = 0;
     int     y = 0;
 
-    memset( buffer_, 0, BUFFER_SIZE_ );
+    memset( oledBuffer_, 0, OLED_BUFFER_SIZE_ );
 
     for ( char ch : message )
     {
@@ -198,8 +197,8 @@ NanoHat::print( const string& message )
             ch = ' ';
         }
 
-        uint8_t*        top = buffer_ + ( y << 8 ) + ( x << 3 );
-        uint8_t*        bottom = buffer_ + ( y << 8 ) + ( x+16 << 3 );
+        uint8_t*        top = oledBuffer_ + ( y << 8 ) + ( x << 3 );
+        uint8_t*        bottom = oledBuffer_ + ( y << 8 ) + ( x+16 << 3 );
         const uint8_t*  font = FONT[ ch - 32 ];
 
         memcpy( top, font, 8 );
@@ -212,5 +211,5 @@ NanoHat::print( const string& message )
         }
     }
 
-    oledFlush_( i2cfd_, buffer_ );
+    oledFlush_( i2cfd_, oledBuffer_ );
 }

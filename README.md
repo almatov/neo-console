@@ -16,7 +16,8 @@ work under any other Linux system.
 
 Software requirements:
 
-	g++-6.3.0+	(apt install build-essential)
+    g++-10.2+       (apt install build-essential)
+    libgpiod-2.0+   (https://git.kernel.org/pub/scm/libs/libgpiod/libgpiod.git)
 
 Run this
 

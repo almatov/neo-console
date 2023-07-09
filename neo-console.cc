@@ -2,7 +2,7 @@
 ****************************************************************************************************************
 ****************************************************************************************************************
 
-    Copyright (C) 2021, 2022 Askar Almatov
+    Copyright (C) 2021, 2022, 2023 Askar Almatov
 
     This program is free software: you can redistribute it and/or modify it under the terms of the GNU General
     Public License as published by the Free Software Foundation, either version 3 of the License, or (at your
@@ -26,13 +26,14 @@
 #include <vector>
 #include <ifaddrs.h>
 #include <netdb.h>
+#include <unistd.h>
 
 #include "nanohat.h"
 
 using std::atomic_flag;
 using std::string;
 
-constexpr const int     WAIT_TIMEOUT = 1000;    // millisecondds
+constexpr const int     IDLE_DURATION = 200000;    // microseconds
 
 enum class State
 {
@@ -108,26 +109,33 @@ main()
     while ( !stopFlag.test_and_set() )
     {
         stopFlag.clear();
-        hat.waitKey( WAIT_TIMEOUT );
 
-        if      ( hat.isKey1() ) { state = State::IP; }
-        else if ( hat.isKey2() ) { state = State::CLOCK; }
-        else if ( hat.isKey3() ) { state = State::BLANK; }
+        switch ( hat.getKey() )
+        {
+            case NanoHat::Key::KEY_F1:
+                state = State::IP;
+                break;
+            case NanoHat::Key::KEY_F2:
+                state = State::CLOCK;
+                break;
+            case NanoHat::Key::KEY_F3:
+                state = State::BLANK;
+        };
 
         switch ( state )
         {
             case State::IP:
                 hat.print( getIp() );
                 break;
-
             case State::CLOCK:
                 hat.print( getClock() );
                 break;
-
             case State::BLANK:
             default:
                 hat.print( "" );
         };
+
+        usleep( IDLE_DURATION );
     }
 
     hat.print( "" );

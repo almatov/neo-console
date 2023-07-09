@@ -14,3 +14,9 @@ install:
 	cp neo-console /usr/local/bin
 	cp neo-console.service /etc/systemd/system
 	systemctl daemon-reload
+
+clean:
+	rm bdfparser
+	rm font.cc
+	rm neo-console
+
