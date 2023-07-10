@@ -92,6 +92,25 @@ getClock()
 }
 
 /**************************************************************************************************************/
+State
+doFsm( State state, NanoHat::Key key )
+{
+    if ( key < NanoHat::Key::F1 || key > NanoHat::Key::F3 )
+    {
+        return state;
+    }
+
+    static State    fsmTable[ 3 ][ 3 ] =
+    {
+        { State::IP, State::CLOCK, State::BLANK },  // from State::IP
+        { State::IP, State::CLOCK, State::BLANK },  // from State::CLOCK
+        { State::IP, State::CLOCK, State::BLANK }   // from State::BLANK
+    };
+
+    return fsmTable[ static_cast<int>(state) ][ static_cast<int>(key) ];
+}
+
+/**************************************************************************************************************/
 int
 main()
 {
@@ -110,18 +129,6 @@ main()
     {
         stopFlag.clear();
 
-        switch ( hat.getKey(WAIT_TIMEOUT) )
-        {
-            case NanoHat::Key::KEY_F1:
-                state = State::IP;
-                break;
-            case NanoHat::Key::KEY_F2:
-                state = State::CLOCK;
-                break;
-            case NanoHat::Key::KEY_F3:
-                state = State::BLANK;
-        };
-
         switch ( state )
         {
             case State::IP:
@@ -134,6 +141,8 @@ main()
             default:
                 hat.print( "" );
         };
+
+        state = doFsm( state, hat.getKey(WAIT_TIMEOUT) );
     }
 
     hat.print( "" );

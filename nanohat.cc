@@ -150,20 +150,20 @@ NanoHat::getKey( int timeout )
                 switch ( offset )
                 {
                     case F1_PIN_:
-                        keyQueue_.push( Key::KEY_F1 );
+                        keyQueue_.push( Key::F1 );
                         break;
                     case F2_PIN_:
-                        keyQueue_.push( Key::KEY_F2 );
+                        keyQueue_.push( Key::F2 );
                         break;
                     case F3_PIN_:
-                        keyQueue_.push( Key::KEY_F3 );
+                        keyQueue_.push( Key::F3 );
                 }
             }
         }
 
         if ( keyQueue_.empty() )
         {
-            return Key::NO_KEY;
+            return Key::NIL;
         }
     }
 

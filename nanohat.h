@@ -28,10 +28,10 @@ class NanoHat
 public:
     enum class Key
     {
-                                        NO_KEY,
-                                        KEY_F1,
-                                        KEY_F2,
-                                        KEY_F3
+                                        F1,
+                                        F2,
+                                        F3,
+                                        NIL
     };
 
                                         NanoHat();
